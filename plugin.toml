@@ -18,7 +18,7 @@ ui_contributions = true
 
 [permissions]
 subscribe_events = { types = ["games_changed", "companion_game_changed"], reason = "Tracks game list and selected game changes to detect active gaming sessions." }
-send_chat_message = { reason = "GameBuddy отправляет сообщения друзьям Steam по запросу пользователя." }
+send_chat_message = { reason = "Sends game start messages and session summaries to the GameBuddy chat." }
 push_to_ui = { reason = "Updates the GameBuddy interface with game activity and session status." }
 
 [config]
