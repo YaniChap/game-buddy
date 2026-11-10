@@ -1,0 +1,30 @@
+
+[plugin]
+min_astra_version = "0.2.7"
+id = "game-buddy"
+name = "GameBuddy"
+version = "0.1.0"
+description = "A friendly gaming companion for Steam activity tracking, game statistics, friend messaging, and gaming session updates."
+author = "YaniChap"
+
+[entry]
+command = "target/release/game_buddy"
+
+[capabilities]
+tools = true
+event_handlers = true
+client = true
+ui_contributions = true
+
+[permissions]
+subscribe_events = { types = ["games_changed", "companion_game_changed"], reason = "Tracks game list and selected game changes to detect active gaming sessions." }
+send_chat_message = { reason = "GameBuddy отправляет сообщения друзьям Steam по запросу пользователя." }
+push_to_ui = { reason = "Updates the GameBuddy interface with game activity and session status." }
+
+[config]
+schema = '''
+{
+  "type": "object",
+  "properties": {}
+}
+'''

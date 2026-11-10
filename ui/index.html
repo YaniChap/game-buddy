@@ -1,0 +1,47 @@
+
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+<!doctype html>
+<html lang="ru">
+<head>
+  <script src="http://astra-plugin.localhost/bridge/astra-bridge.js"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090714">
+  <title>GameBuddy</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: #090714;
+      color: #f4efff;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    body {
+      background:
+        radial-gradient(ellipse at 15% 10%, rgba(142, 45, 255, 0.20), transparent 45%),
+        radial-gradient(ellipse at 90% 80%, rgba(0, 210, 255, 0.13), transparent 45%),
+        #090714;
+    }
+
+    #app {
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    ::selection {
+      background: #a855f7;
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
