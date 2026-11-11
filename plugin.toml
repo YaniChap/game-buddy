@@ -3,7 +3,7 @@
 min_astra_version = "0.2.7"
 id = "game-buddy"
 name = "GameBuddy"
-version = "0.2.3"
+version = "0.2.4"
 description = "A customizable AI gaming companion with Steam tracking, personality controls, session insights, and a neon interface."
 author = "YaniChap"
 license = "MIT"
