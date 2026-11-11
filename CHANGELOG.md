@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- Release version 0.2.3.
+
 ## 0.2.0
 
 - Rebuilt the GameBuddy interface as a responsive dark neon-purple dashboard.
