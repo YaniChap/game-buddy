@@ -16,7 +16,7 @@ on:
     # another plugin's tag, where it fails the version assertion; a glob
     # narrower than it never starts at all, and a release that silently does
     # nothing is the worst of the two.
-    tags: ["v*"]
+    tags: ["[0-9]*"]
 
 # Required, and required HERE: a reusable workflow can only reduce the
 # permissions its caller granted, never grant itself more. Leave all three.
@@ -35,7 +35,7 @@ jobs:
     with:
       plugin-dir: .
       # The tag that releases THIS plugin, and nothing else in this repository.
-      tag-prefix: "v"
+      tag-prefix: ""
       # Extra apt packages the Linux build needs, e.g. "libasound2-dev pkg-config".
       linux-packages: ""
     # No `secrets: inherit`, deliberately. This workflow declares no secrets,
