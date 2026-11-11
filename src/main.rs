@@ -356,6 +356,25 @@ fn find_achievement(value: &serde_json::Value) -> Option<String> {
     }
 }
 
+fn session_end_message(session: &FinishedSession, settings: &serde_json::Value) -> String {
+    let duration = format_duration(session.ended_at.saturating_sub(session.started_at));
+    if !settings["session_reports"].as_bool().unwrap_or(true) {
+        return format!(
+            "GameBuddy: сессия в {} завершилась. Игровое время: {}. Хорошего отдыха!",
+            session.game, duration
+        );
+    }
+    let moments = if session.moments.is_empty() {
+        "пока не записаны".to_string()
+    } else {
+        session.moments.join("; ")
+    };
+    format!(
+        "GameBuddy: игровая сессия в {} завершилась. По данным GameBuddy, ты играл {}. Зафиксированные моменты: {}. Подведи короткий итог, отметь только реальные события и предложи одну идею на следующий заход.",
+        session.game, duration, moments
+    )
+}
+
 async fn send_companion_message(ctx: &PluginContext, message: &str) {
     let settings = load_settings();
     if !settings["notifications"].as_bool().unwrap_or(true) || quiet_hours_active(&settings) {
@@ -377,8 +396,28 @@ async fn send_companion_message(ctx: &PluginContext, message: &str) {
         "en" => "Reply in English. ",
         _ => "Подстраивай язык под диалог. ",
     };
+    let spoiler_hint = if settings["spoilers"].as_bool().unwrap_or(false) {
+        "Спойлеры допустимы, но предупреждай заранее. "
+    } else {
+        "Не раскрывай сюжетные спойлеры. "
+    };
+    let backseat_hint = if settings["backseat"].as_bool().unwrap_or(false) {
+        "Не давай советы без прямой просьбы игрока. "
+    } else {
+        "Короткие полезные советы допустимы, если уместны. "
+    };
+    let tips_hint = if settings["auto_tips"].as_bool().unwrap_or(true) {
+        "Можешь предложить одну полезную подсказку по контексту. "
+    } else {
+        "Не предлагай игровые советы без прямого запроса. "
+    };
+    let verbosity_hint = match settings["verbosity"].as_str().unwrap_or("balanced") {
+        "short" => "Отвечай очень кратко. ",
+        "detailed" => "Давай подробный структурированный ответ. ",
+        _ => "Отвечай умеренно подробно. ",
+    };
     let message = format!(
-        "{personality}{language_hint}Энергичность: {energy}/100. Интенсивность подколов: {teasing}/100. Не выдумывай игровые события. {message}"
+        "{personality}{language_hint}{verbosity_hint}{spoiler_hint}{backseat_hint}{tips_hint}Энергичность: {energy}/100. Интенсивность подколов: {teasing}/100. Не выдумывай игровые события, статистику или достижения. {message}"
     );
     match ctx.host().send_chat_message(&message, "", true).await {
         Ok(mut reply_stream) => {
@@ -448,18 +487,36 @@ impl GameBuddy {
     /// Отвязать Steam и удалить локальный токен авторизации.
     #[ui_call]
     async fn disconnect_steam_ui(&self) -> Result<String, ToolError> {
-        if let Ok(path) = steam_token_path() {
-            if path.exists() {
-                std::fs::remove_file(path).map_err(ToolError::internal)?;
-            }
+        let path = steam_token_path().map_err(ToolError::internal)?;
+
+        // Treat an already-missing token as successfully disconnected, but do not
+        // hide permission or filesystem errors.
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(ToolError::internal(err)),
         }
+
+        // Confirm that the token is no longer readable before reporting success.
+        if read_saved_steam_token().is_some() {
+            return Err(ToolError::internal(anyhow::anyhow!(
+                "Steam token still exists after disconnect"
+            )));
+        }
+
         {
             let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
             state.active = None;
             state.last = None;
             state.initialized = false;
         }
-        Ok(r#"{"ok":true,"connected":false}"#.into())
+
+        Ok(serde_json::json!({
+            "ok": true,
+            "connected": false,
+            "tokenPresent": false
+        })
+        .to_string())
     }
 
     /// Открывает сайт GameBuddy во внешнем браузере Windows.
@@ -483,12 +540,22 @@ impl GameBuddy {
     async fn dashboard_data(&self) -> Result<String, ToolError> {
         if read_saved_steam_token().is_none() {
             return Ok(serde_json::json!({
-                "connected": false, "online": false, "currentGame": "",
+                "connected": false, "tokenPresent": false, "online": false, "currentGame": "",
                 "lastGame": "", "playtimeRecentMinutes": 0
             })
             .to_string());
         }
-        let data = self.steam_api_get("/api/steam/activity").await?;
+        let data = match self.steam_api_get("/api/steam/activity").await {
+            Ok(data) => data,
+            Err(err) => {
+                return Ok(serde_json::json!({
+                    "connected": false, "tokenPresent": true, "online": false,
+                    "currentGame": "", "lastGame": "", "playtimeRecentMinutes": 0,
+                    "error": format!("{:?}", err)
+                })
+                .to_string());
+            }
+        };
 
         let recent = data["recentGames"]
             .as_array()
@@ -518,6 +585,7 @@ impl GameBuddy {
 
         let result = serde_json::json!({
             "connected": true,
+            "tokenPresent": true,
             "online": data["online"].as_bool().unwrap_or(false),
             "currentGame": current_game,
             "lastGame": recent_game,
@@ -624,18 +692,10 @@ impl GameBuddy {
                             };
 
                             if let Some(session) = ended {
-                                if load_settings()["game_ended"].as_bool().unwrap_or(true) {
-                                    let duration = format_duration(
-                                        session.ended_at.saturating_sub(session.started_at),
-                                    );
-                                    send_companion_message(
-                                    &ctx,
-                                    &format!(
-                                        "GameBuddy: игровая сессия в {} завершилась. Ты играл {}. Отличная работа! До следующего захода!",
-                                        session.game,
-                                        duration
-                                    )
-                                ).await;
+                                let preferences = load_settings();
+                                if preferences["game_ended"].as_bool().unwrap_or(true) {
+                                    let message = session_end_message(&session, &preferences);
+                                    send_companion_message(&ctx, &message).await;
                                 }
                             }
 
@@ -692,7 +752,9 @@ impl GameBuddy {
                 let game = {
                     let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
                     if let Some(session) = state.active.as_mut() {
-                        session.moments.push(moment.clone());
+                        if prefs["remember_moments"].as_bool().unwrap_or(true) {
+                            session.moments.push(moment.clone());
+                        }
                         Some(session.game.clone())
                     } else {
                         None
@@ -784,21 +846,10 @@ impl GameBuddy {
         };
 
         if let Some(session) = ended {
-            if load_settings()["game_ended"].as_bool().unwrap_or(true) {
-                let duration = format_duration(session.ended_at.saturating_sub(session.started_at));
-                let moments = if session.moments.is_empty() {
-                    "пока не записаны".to_string()
-                } else {
-                    session.moments.join("; ")
-                };
-                if load_settings()["session_reports"].as_bool().unwrap_or(true) {
-                    send_companion_message(ctx, &format!(
-                    "GameBuddy: игровая сессия в {game} завершилась. По моим данным, ты играл {duration}. Зафиксированные моменты: {moments}. Подведи короткий итог с учётом выбранного характера, не выдумывай победы, достижения или статистику; закончи одной идеей на следующий заход.",
-                    game = session.game
-                )).await;
-                } else {
-                    send_companion_message(ctx, &format!("GameBuddy: сессия в {} завершилась. Игровое время: {duration}. Хорошего отдыха!", session.game)).await;
-                }
+            let preferences = load_settings();
+            if preferences["game_ended"].as_bool().unwrap_or(true) {
+                let message = session_end_message(&session, &preferences);
+                send_companion_message(ctx, &message).await;
             }
         }
         if let Some(game) = started {
